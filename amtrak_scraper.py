@@ -1,28 +1,31 @@
 """
-Amtrak Delay Data Collector - Standalone Scraper
-=================================================
-Run this script periodically (e.g., every 15 minutes via cron) to accumulate
-real-time Amtrak delay data into an SQLite database.
+Amtrak Delay Data Collector + ML Prediction Pipeline
+=====================================================
+Run this script periodically (e.g., every 15 minutes via cron) to:
+1. Scrape real-time Amtrak train data from the Amtraker API
+2. Store delay records in SQLite
+3. Run ML predictions on new data (if a trained model exists)
 
 Usage:
     python amtrak_scraper.py
 
 Cron example (every 15 minutes):
-    */15 * * * * cd /path/to/project && python amtrak_scraper.py >> scraper.log 2>&1
+    */15 * * * * /path/to/.venv/bin/python /path/to/amtrak_scraper.py >> /path/to/scraper.log 2>&1
 """
 
 import requests
 import sqlite3
 import time
 import json
+import os
+import pickle
+import numpy as np
 from datetime import datetime, timezone
 
-import os
-
 # ── Configuration ──────────────────────────────────────────────────────────
-# use absolute path so cron always writes to the project directory
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(SCRIPT_DIR, "amtrak_delays.db")
+MODEL_PATH = os.path.join(SCRIPT_DIR, "delay_model.pkl")
 API_URL = "https://api-v3.amtraker.com/v3/trains"
 HEADERS = {
     "User-Agent": "STA220-AmtrakProject/1.0 (UC Davis Student Project)"
@@ -36,8 +39,8 @@ def create_tables(conn):
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS routes (
             route_name TEXT PRIMARY KEY,
-            sample_origin TEXT,
-            sample_destination TEXT,
+            origin TEXT,
+            destination TEXT,
             first_seen TEXT,
             last_seen TEXT
         )
@@ -77,6 +80,22 @@ def create_tables(conn):
         )
     """)
 
+    # predictions table — stores ML model predictions alongside actuals
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS predictions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scrape_time TEXT NOT NULL,
+            train_number TEXT,
+            route_name TEXT,
+            station_code TEXT,
+            station_name TEXT,
+            predicted_delay_min REAL,
+            actual_delay_min REAL,
+            prediction_error REAL,
+            model_version TEXT
+        )
+    """)
+
     conn.commit()
 
 
@@ -93,6 +112,93 @@ def parse_delay_minutes(scheduled, actual):
         return None
 
 
+def load_model():
+    """Load the trained ML model and its encoders if they exist."""
+    if not os.path.exists(MODEL_PATH):
+        return None
+    try:
+        with open(MODEL_PATH, "rb") as f:
+            model_data = pickle.load(f)
+        print(f"  ✓ Loaded ML model (trained: {model_data.get('trained_at', 'unknown')})")
+        return model_data
+    except Exception as e:
+        print(f"  ⚠ Could not load model: {e}")
+        return None
+
+
+def predict_delays(model_data, records, scrape_time):
+    """Run ML predictions on the scraped records."""
+    model = model_data["model"]
+    route_encoder = model_data["route_encoder"]
+    station_encoder = model_data["station_encoder"]
+    feature_cols = model_data["feature_cols"]
+    median_velocity = model_data.get("median_velocity", 0)
+
+    predictions = []
+
+    for rec in records:
+        try:
+            # extract features matching the training pipeline
+            sch_arr = rec.get("scheduled_arrival", "")
+            if not sch_arr:
+                continue
+
+            sch_dt = datetime.fromisoformat(sch_arr)
+            hour = sch_dt.hour
+            day_of_week = sch_dt.weekday()
+            is_weekend = 1 if day_of_week >= 5 else 0
+
+            # encode route — use -1 for unseen routes
+            route = rec.get("route_name", "Unknown")
+            if route in route_encoder:
+                route_encoded = route_encoder[route]
+            else:
+                continue  # skip unseen routes
+
+            # encode station — use -1 for unseen stations
+            station = rec.get("station_code", "")
+            if station in station_encoder:
+                station_encoded = station_encoder[station]
+            else:
+                continue  # skip unseen stations
+
+            velocity = rec.get("velocity")
+            if velocity is None:
+                velocity = median_velocity
+
+            stop_number = rec.get("stop_number", 1)
+
+            # build feature vector in the same order as training
+            features = np.array([[
+                route_encoded, station_encoded, hour,
+                day_of_week, is_weekend, stop_number, velocity
+            ]])
+
+            predicted_delay = model.predict(features)[0]
+            actual_delay = rec.get("delay_arrival_min")
+
+            error = None
+            if actual_delay is not None:
+                error = round(predicted_delay - actual_delay, 1)
+
+            predictions.append({
+                "scrape_time": scrape_time,
+                "train_number": rec.get("train_number", ""),
+                "route_name": route,
+                "station_code": station,
+                "station_name": rec.get("station_name", ""),
+                "predicted_delay_min": round(predicted_delay, 1),
+                "actual_delay_min": actual_delay,
+                "prediction_error": error,
+                "model_version": model_data.get("trained_at", "unknown")
+            })
+
+        except Exception:
+            continue
+
+    return predictions
+
+
 def fetch_and_store(conn):
     """Fetch current train data from Amtraker API and store in database."""
     scrape_time = datetime.now(timezone.utc).isoformat()
@@ -105,6 +211,7 @@ def fetch_and_store(conn):
     cursor = conn.cursor()
     trains_processed = 0
     stations_logged = 0
+    all_records = []  # collect for ML predictions
 
     for train_num, train_list in data.items():
         for train in train_list:
@@ -120,14 +227,16 @@ def fetch_and_store(conn):
 
             # upsert route
             cursor.execute("""
-                INSERT INTO routes (route_name, sample_origin, sample_destination, first_seen, last_seen)
+                INSERT INTO routes (route_name, origin, destination, first_seen, last_seen)
                 VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(route_name) DO UPDATE SET
                     last_seen = excluded.last_seen
             """, (route_name, orig, dest, scrape_time, scrape_time))
 
             # process each station stop
+            stop_num = 0
             for station in train.get("stations", []):
+                stop_num += 1
                 code = station.get("code", "")
                 name = station.get("name", "")
                 tz = station.get("tz", "")
@@ -141,7 +250,6 @@ def fetch_and_store(conn):
                         station_name = excluded.station_name
                 """, (code, name, tz, bus))
 
-                # only log stations that have actual arrival/departure data
                 sch_arr = station.get("schArr", "")
                 act_arr = station.get("arr", "")
                 sch_dep = station.get("schDep", "")
@@ -169,22 +277,72 @@ def fetch_and_store(conn):
                 ))
                 stations_logged += 1
 
+                # collect departed records for prediction
+                if status == "Departed" and delay_arr is not None:
+                    all_records.append({
+                        "train_number": train_number,
+                        "route_name": route_name,
+                        "station_code": code,
+                        "station_name": name,
+                        "scheduled_arrival": sch_arr,
+                        "delay_arrival_min": delay_arr,
+                        "velocity": velocity,
+                        "stop_number": stop_num,
+                    })
+
             trains_processed += 1
 
     conn.commit()
-    return trains_processed, stations_logged
+    return trains_processed, stations_logged, all_records, scrape_time
+
+
+def store_predictions(conn, predictions):
+    """Store ML predictions in the predictions table."""
+    cursor = conn.cursor()
+    for p in predictions:
+        cursor.execute("""
+            INSERT INTO predictions (
+                scrape_time, train_number, route_name, station_code,
+                station_name, predicted_delay_min, actual_delay_min,
+                prediction_error, model_version
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            p["scrape_time"], p["train_number"], p["route_name"],
+            p["station_code"], p["station_name"],
+            p["predicted_delay_min"], p["actual_delay_min"],
+            p["prediction_error"], p["model_version"]
+        ))
+    conn.commit()
 
 
 def main():
-    """Main entry point for the scraper."""
+    """Main entry point: scrape → store → predict."""
     print(f"[{datetime.now().isoformat()}] Starting Amtrak data collection...")
 
     conn = sqlite3.connect(DB_PATH)
     create_tables(conn)
 
     try:
-        trains, stations = fetch_and_store(conn)
+        # Step 1: Scrape and store
+        trains, stations, records, scrape_time = fetch_and_store(conn)
         print(f"  ✓ Collected data for {trains} trains, {stations} station stops")
+
+        # Step 2: Run ML predictions (if model exists)
+        model_data = load_model()
+        if model_data and len(records) > 0:
+            predictions = predict_delays(model_data, records, scrape_time)
+            if predictions:
+                store_predictions(conn, predictions)
+                # compute summary stats
+                errors = [p["prediction_error"] for p in predictions if p["prediction_error"] is not None]
+                if errors:
+                    mae = np.mean(np.abs(errors))
+                    print(f"  ✓ ML predictions: {len(predictions)} stations, MAE = {mae:.1f} min")
+                else:
+                    print(f"  ✓ ML predictions: {len(predictions)} stations (no actuals to compare)")
+        elif model_data is None:
+            print("  ℹ No ML model found — run the notebook to train and export one")
+
     except requests.RequestException as e:
         print(f"  ✗ API request failed: {e}")
     except Exception as e:

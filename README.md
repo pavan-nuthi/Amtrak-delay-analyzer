@@ -62,7 +62,7 @@ Project/
 cd /path/to/Project
 python -m venv .venv
 source .venv/bin/activate
-pip install requests lxml pandas matplotlib plotly folium scipy numpy requests-cache nbformat
+pip install requests lxml pandas matplotlib plotly folium scipy numpy requests-cache nbformat scikit-learn
 ```
 
 ### 2. Run the Scraper (one-time)
