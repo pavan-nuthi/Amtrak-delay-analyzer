@@ -6,7 +6,7 @@
 \geometry{letterpaper, margin=1in}
 \usepackage{graphicx}
 \usepackage{booktabs}
-\usepackage{hyperref}
+\usepackage[hidelinks]{hyperref}
 \usepackage{amsmath}
 \usepackage{caption}
 \usepackage{float}
@@ -48,20 +48,17 @@
 
 \begin{document}
 
-\begin{titlepage}
-    \maketitle
-    \thispagestyle{empty}
-    \vspace{2cm}
-    \begin{abstract}
-        The train schedules in the United States usually have a lot of unpredictable delays, and this leads to inefficient connectivity, and people fear taking the trains for this reason. This project mainly focuses on Amtrak delays and figuring out the factors that really affect them, and verifying whether a machine learning algorithm can reliably forecast them. We designed an end-to-end data collection pipeline that scraped over 2.3 million real-time data points from the amtraker api, and we combined this data with geographical metadata and weather data for the major stations. We then cleaned it down to approximately 1021244 data points and used this data for training and testing the machine learning model.
+\pagenumbering{arabic}
+\setcounter{page}{1}
+\maketitle
 
-        The conclusions demonstrate that weather data, which has parameters like maximum wind speed, maximum temperature, and precipitation, shows very minimal effect in deciding delays, and most people assume that bad weather plays a major role, but our correlation did not support that. Also, the ANOVA analysis showcased route-level and geographic factors as the most determining factors in deciding the delay. To go further with prediction, we trained a Random Forest model using these features, achieving an $R^2$ of 0.78 and MAE of $\sim$7.0. This report walks through the architecture, implementation, and data analysis used for predicting the delays, and our model can forecast the delays for future days by consuming real-time data.
+\vspace{1cm}
+\section{Abstract}
 
-    \end{abstract}
-\end{titlepage}
+The train schedules in the United States usually have a lot of unpredictable delays, and this leads to inefficient connectivity, and people fear taking the trains for this reason. This project mainly focuses on Amtrak delays and figuring out the factors that really affect them, and verifying whether a machine learning algorithm can reliably forecast them. We designed an end-to-end data collection pipeline that scraped over 2.3 million real-time data points from the amtraker api, and we combined this data with geographical metadata and weather data for the major stations. We then cleaned it down to approximately 1021244 data points and used this data for training and testing the machine learning model.
 
-\clearpage
-\tableofcontents
+The conclusions demonstrate that weather data, which has parameters like maximum wind speed, maximum temperature, and precipitation, shows very minimal effect in deciding delays, and most people assume that bad weather plays a major role, but our correlation did not support that. Also, the ANOVA analysis showcased route-level and geographic factors as the most determining factors in deciding the delay. To go further with prediction, we trained a Random Forest model using these features, achieving an $R^2$ of 0.78 and MAE of $\sim$7.0. This report walks through the architecture, implementation, and data analysis used for predicting the delays, and our model can forecast the delays for future days by consuming real-time data.
+
 \clearpage
 
 \section{Introduction}
@@ -90,7 +87,7 @@ We formalized three dominant Research Questions (RQs):
 \end{enumerate}
 We initially hypothesized noticeable delay variations dictated by cross-country routes and expected a relatively strong positive correlation between adverse weather strings and transit halts.
 
-\section{Methods and Data Engineering}
+\section{Methods}
 
 
 \begin{figure}[H]
@@ -135,9 +132,11 @@ To address RQ1 i.e. system delays the delay changes over time was visualized usi
 Gradient Boosting Regressors were compared to Random Forest architectures by the analytical models in order to synthesize network variables mathematically (RQ3). The reason for choosing Random Forest as the best model was because complex, nonlinear patterns can be handled naturally by its group of decision trees. For example, increase in delay does not happen in a simple way- if a freight schedule window is missed a 5 minute delay will grow into half an hour. 80/20 partitioning were explicitly used for Train-to-Test distribution.
 
 
-\section{Results: Network Variances and Temporal Analysis}
+\section{Results}
 
-\subsection{Exploratory Delay Patterns by Route}
+\subsection{Network Variances and Temporal Analysis}
+
+\subsubsection{Exploratory Delay Patterns by Route}
 Vast disparities linked specifically to specific train routes were quickly discovered by the investigation of the baseline transit efficiency. Strong logical blocks were implied by average  \texttt{delay\_arrival\_min} aggregates by utilizing the flattened dataset. These strong logical blocks were innate to bigger intercontinental tracks (such as the \textit{Sunset Limited} or \textit{California Zephyr}) relative to urban commuting paths which were comparatively tighter (e.g., \textit{Northeast Regional}).
 
 \begin{figure}[H]
@@ -168,7 +167,7 @@ To dynamically reinforce the observations' statistical foundation we utilized a 
     \label{tab:anova_stats}
 \end{table}
 
-\subsection{Chronological Congestion}
+\subsubsection{Chronological Congestion}
 A proper pattern can be observed when the delays were plotted over the course of the day. Predicted structural clustering can be seen during expected high-traffic gridlock hours and evening cascade points.
 
 \begin{figure}[H]
@@ -185,9 +184,9 @@ A proper pattern can be observed when the delays were plotted over the course of
     \end{minipage}
 \end{figure}
 
-\section{Results: Meteorological and Weather Correlation}
+\subsection{Meteorological and Weather Correlation}
 
-\subsection{Visual Scatter Testing}
+\subsubsection{Visual Scatter Testing}
 Many people assume that the weather might be a primary reason for the delay of trains. To check this we get the weather data of 10 major hubs across the USA (Los Angeles, Sacramento, New York, etc.) to test these hypotheses. We get the temperature, precipitation, and wind data in these 10 major hubs and compare the current day delay with the delays of the previous seven days. The scatter plot (Figure \ref{fig:scatter}) shows the delays  of the trains across varying precipitation and wind weather conditions
 
 The plots visually reveal no trends. The severe delays, ranging from 40 to 80 minutes, cluster near the zero bound of the precipitation axis and within moderate wind speeds (10 to 30 km/h). These scatter plots provide evidence that train delays might occur even during clear days, proving that the delays happen independently of any environmental issues. The delays might be due to other factors, like freight train delays and congestion patterns in major cities.
@@ -200,7 +199,7 @@ The plots visually reveal no trends. The severe delays, ranging from 40 to 80 mi
 \end{figure}
 
 
-\subsection{Correlation Verification}
+\subsubsection{Correlation Verification}
 Running the Pearson and Spearman Correlation tests, it reveals a statistically significant but weak correlation between delays and environmental factors. ($p$-value $\approx 0.001$). Maximum temperature and delays show a positive correlation (Pearson $r \approx +0.26$, Spearman $\rho \approx +0.39$), and precipitation and maximum wind speed show negative correlation with train delays ($r \approx -0.15$ and $-0.18$, respectively). Though weather shows a measurable impact on train delays, it is not significant enough to derive a conclusion. 
 
 \begin{table}[H]
@@ -226,9 +225,9 @@ Running the Pearson and Spearman Correlation tests, it reveals a statistically s
     \label{fig:correlation}
 \end{figure}
 
-\section{Results: Machine Learning Predictions}
+\subsection{Machine Learning Predictions}
 
-\subsection{Model Validation and Accuracy}
+\subsubsection{Model Validation and Accuracy}
 The Amtraker website doesn't do any delay predictions, so we thought adding it would give users an idea about delays in particular Amtrak stations, and they can be prepared accordingly. We train two ensemble models: \textbf{Random Forest} and \textbf{Gradient Boosting}. Both models use the same seven features, which are the route name, station name, hour of the day, day-of-week, weekend flag, stop number along the route, and train speed, and were evaluated on the same number of training and testing samples to get a accurate comparison.
 \begin{table}[H]
     \centering
@@ -249,7 +248,7 @@ The Amtraker website doesn't do any delay predictions, so we thought adding it w
 \end{table}
 
 On the testing data, \textbf{Random Forest performed better}, so we used the Random Forest model for future predictive analysis.
-\subsection{Feature Importance and Route-Level Interpretation}
+\subsubsection{Feature Importance and Route-Level Interpretation}
 The Random Forest model calculates the feature importance based on which internal tree node leads to the final prediction. This analysis confirms that \texttt{Route} and \texttt{Stop \# Along Route} are the most important predictors. This shows that delays are route-driven and can be attributed to various attributes like congestion with a route, the terrain of the route.
 
 \begin{figure}[H]
@@ -274,7 +273,7 @@ As shown in Figure \ref{fig:predictions}, the model is able to predict the delay
     \label{fig:predictions}
 \end{figure}
 
-\section{Summary}
+\section{Summary / Conclusion}
 
 \subsection{What we found}
 We built an automated system that scrapes live Amtrak data, run statistical tests on it, and trains a machine learning model on the results. The ANOVA and correlation results were pretty clear: extreme delays track with route infrastructure (the specific line, the stop number, train speed) far more than with local weather conditions. While Feeding those infrastructure variables into a Random Forest model, we got delay predictions within about 7 minutes of actual outcomes.
@@ -294,12 +293,25 @@ While algorithmically sound, explicit engineering constraints temper conclusions
 
 \subsection{Future Directions}
 The scraper needs to run for a full year. Ten days got us this far, but 12 months of data (roughly 70 million records) would let the model pick up seasonal trends. Another improvement worth pursuing is GPS-based weather lookup. This would pull conditions at the train’s actual coordinates instead of the nearest hub station. That would go a long way toward clarifying whether weather matters more than our current data suggests.
+
+\vspace{1cm}
+\renewcommand{\refname}{}
 \section{References}
+\vspace{-1.5cm}
 \begin{thebibliography}{9}
     \bibitem{ref:amtraker} Amtraker User API v3 Repository and Endpoints. Available online: \url{https://api-v3.amtraker.com/}
     \bibitem{ref:meteo} Open-Meteo Historical open-source Meteorological API. Available online: \url{https://open-meteo.com/}
     \bibitem{ref:wiki} \textit{List of Amtrak Stations}. Wikipedia, The Free Encyclopedia. Available online: \url{https://en.wikipedia.org/wiki/List_of_Amtrak_stations}
 \end{thebibliography}
+
+\clearpage
+\renewcommand{\listfigurename}{}
+\renewcommand{\listtablename}{}
+\section{List of Figures and Tables}
+\vspace{-1.5cm}
+\listoffigures
+\vspace{0.5cm}
+\listoftables
 
 \section*{Appendix: Code Implementation}
 \addcontentsline{toc}{section}{Appendix: Code Implementation}
