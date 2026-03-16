@@ -1,4 +1,4 @@
-# 🚂 Amtrak Delay Patterns — Web Scraping & Data Analysis
+# Amtrak Delay Patterns — Web Scraping & Data Analysis
 
 **STA 220 — Data & Web Technologies for Data Analysis**
 
